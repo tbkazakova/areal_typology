@@ -1,0 +1,217 @@
+---
+title: "areal-effects"
+output: html_document
+date: "2023-06-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=FALSE,echo=FALSE}
+library(readr)
+library(dplyr)
+
+library(ggplot2)
+
+library(skimr)
+
+# решающие деревья
+library(party)
+```
+
+
+## Аттенуатив
+
+Данные по аттенуативу: есть ли в языке особый показатель для *пониженной интенсивности* действия?
+
+```{r,message=FALSE,echo=FALSE}
+atten_syb <- read_csv("./data/atten_syb_2.csv")
+atten_world <- read_csv("./data/atten_world.csv")
+```
+
+
+```{r}
+skim(atten_syb)
+```
+
+
+```{r}
+head(atten_syb)
+```
+
+```{r}
+skim(atten_world)
+```
+
+```{r}
+head(atten_world)
+```
+
+
+Выборки пересекаются лишь по нескольким языкам:
+
+```{r}
+in_sib_world <- intersect(atten_syb$id, atten_world$glottocode)
+in_sib_world
+
+```
+
+
+Добавим данные по тому, сибирский ли это язык, из первой выборки:
+
+
+```{r}
+atten_world %>%
+  mutate(in_siberia = if_else(
+    glottocode %in% in_sib_world, 1, 0
+  )) %>%
+  rename(., has_attenuative=has.atten) %>%
+  mutate(family = as.factor(family), in_siberia = as.logical(in_siberia)) ->
+  atten_world
+
+atten_world
+```
+
+
+```{r}
+atten_world %>%
+  filter(has_attenuative %in% c(0,1)) %>%
+  mutate(has_attenuative = as.logical(as.numeric(has_attenuative))) ->
+  atten_world
+```
+
+
+```{r}
+table(atten_world$has_attenuative, atten_world$in_siberia)
+```
+
+```{r}
+
+atten_world %>%
+  mutate(in_siberia = if_else(
+    glottocode %in% in_sib_world, 1, 0
+  )) %>%
+  rename(., has_attenuative=has.atten) %>%
+  mutate(family = as.factor(family), in_siberia = as.logical(in_siberia),
+         has_attenuative = as.logical(has_attenuative)) ->
+  atten_world
+
+
+atten_world
+```
+
+```{r}
+
+atten_full <- merge(
+  x = atten_syb,
+  y = (atten_world %>% filter(!(glottocode %in% in_sib_world))),
+  all = TRUE
+)
+
+skim(atten_full)
+
+atten_full
+
+```
+
+```{r}
+table(atten_full$has_attenuative)
+```
+
+
+
+Рассчитаем сперва базовые статистики для категориальных переменных на небольшой выборке, связанной с Сибирью.
+Мы построим таблицу сопряжённости, мозаичный график в качестве визуализации этой таблицы, а также проверим распределение по критерию χ² и точным тестом Фишера (более верным при малом количестве данных)
+
+```{r}
+make_contingency_stats <- function(table, col1, col2){
+  formula <- as.formula(
+    paste(
+      "~", paste(c(col1, col2), collapse = "+"),
+      collapse=" "
+    )
+  )
+  
+  cont_table <- xtabs(formula, data=table)
+  
+  print(cont_table)
+  
+  mosaicplot(cont_table)
+  
+  print(chisq.test(cont_table))
+  
+  print(fisher.test(cont_table))
+} 
+
+make_contingency_stats(atten_syb, 'has_attenuative', 'in_siberia')
+```
+
+Согласно графику, действительно в языках, отнесённых к Сибири, аттенуатив чаще присутствует, чем нет, а не в Сибири наоборот.
+Однако статистические критерии (здесь уместно говорить о точном тесте Фишера) не поддерживают такой вывод.
+
+Построим решающее дерево.
+
+```{r}
+set.seed(42)
+
+atten_syb %>%
+  mutate(family = as.factor(family), in_siberia = as.logical(in_siberia),
+         has_attenuative = as.logical(has_attenuative)) ->
+  atten_syb
+
+atten_syb_fit <- ctree(has_attenuative ~ family + in_siberia, data = atten_syb)
+plot(atten_syb_fit)
+print(atten_syb_fit)
+
+atten_syb_fit2 <- cforest(has_attenuative ~ family + in_siberia, data = atten_syb,
+                          controls=cforest_unbiased(ntree=100, mtry=2))
+# plot(atten_syb_fit2)
+print(atten_syb_fit2)
+```
+
+Со стандартным значением α=0.05 оказывается в нашем случае, что алгоритм построения дерева выполняет лишь одно деление (https://cran.r-project.org/package=party). В данном случае, предикат для разделения оказывается тривиальным (все семьи, где есть аттенуатив против остальных). Однако можно заметить также и выбросы, по одному выбивающемуся наблюдению в каждой группе.
+
+### Данные по миру
+
+
+```{r}
+atten_full
+```
+
+
+```{r}
+atten_full %>%
+  mutate(family = as.factor(family), in_siberia = as.logical(in_siberia),
+         has_attenuative = as.logical(has_attenuative)) ->
+  atten_full
+
+atten_full %>%
+  filter(!is.na(has_attenuative)) %>%
+  make_contingency_stats("has_attenuative", "in_siberia")
+
+```
+
+
+```{r}
+atten_full %>%
+  filter(!is.na(has_attenuative)) %>%
+  ctree(has_attenuative ~ family + in_siberia, data = .) ->
+  atten_full_fit
+
+plot(atten_full_fit)
+print(atten_full_fit)
+```
+
+На этой выборке, включающей много мировых языков, наиболее важным предикатом оказывается то, в Сибири ли язык! Тут тоже не выполняется дальнейших делений в дереве, как и в ситуации выше, с околосибирской выборкой. 
+
+
+## Пролатив
+
+
+```{r,message=FALSE,echo=FALSE}
+atten_syb <- read_csv("./data/atten_syb_2.csv")
+atten_world <- read_csv("./data/atten_world.csv")
+```
+
+
