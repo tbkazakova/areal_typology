@@ -179,7 +179,6 @@ print(atten_syb_fit2)
 atten_full
 ```
 
-
 ```{r}
 atten_full %>%
   mutate(family = as.factor(family), in_siberia = as.logical(in_siberia),
@@ -210,8 +209,44 @@ print(atten_full_fit)
 
 
 ```{r,message=FALSE,echo=FALSE}
-atten_syb <- read_csv("./data/atten_syb_2.csv")
-atten_world <- read_csv("./data/atten_world.csv")
+prol_syb <- read_csv2("./data/model_prol_siberia 2.csv")
+prol_syb %>%
+  rename(is_siberian=`siberian?`, prolative_case = `prolative case`) %>%
+  mutate(is_siberian = as.logical(is_siberian),
+         family=as.factor(family),
+         prolative_case = as.logical(case_when(
+           prolative_case == "not attested" ~ 0,
+           prolative_case == "attested" ~ 1
+         ))
+  ) ->
+  prol_syb
+
 ```
+
+
+```{r}
+skim(prol_syb)
+
+
+head(prol_syb)
+```
+
+```{r}
+make_contingency_stats(prol_syb, "is_siberian", "prolative_case")
+```
+
+Картина по пролативу на небольшой (немного другой) околосибирской выборке более явная, чем была по аттенуативу. Здесь видим, значимые значения критериев χ² и теста Фишера (p=0.026).
+Более однозначно выглядит и график: пролатив почти не представлен в несибирских языках, а сибирские языки делятся на две равные группы по его наличию.
+
+```{r}
+prol_syb %>%
+  filter(!is.na(prolative_case)) %>%
+  ctree(prolative_case ~ family + is_siberian, data = .) ->
+  prol_syb_fit
+
+plot(prol_syb_fit)
+print(prol_syb_fit)
+```
+
 
 
