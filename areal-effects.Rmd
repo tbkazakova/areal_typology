@@ -1,6 +1,9 @@
 ---
-title: "areal-effects"
-output: html_document
+title: "Эффекты ареальности в Сибири"
+author: Максим Бажуков, Таня Казакова
+output:
+  pdf_document: default
+  html_document: default
 date: "2023-06-26"
 ---
 
@@ -11,8 +14,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r,message=FALSE,echo=FALSE}
 library(readr)
 library(dplyr)
+library(forcats)
 
 library(ggplot2)
+library(viridisLite)
 
 library(skimr)
 
@@ -20,18 +25,192 @@ library(skimr)
 library(party)
 ```
 
+```{r,echo=FALSE}
+use_skim = FALSE
+```
+
+
+## Введение
+
+Этот проект — продолжение работы над проектом  
+  “Morphosyntactic complexities in (North-Eastern) Siberia: evidence for contact-induced convergence?” Alexey Vinyar, Tatiana Kazakova, Alexandra Nogina, Alexey Baklanov, Daria Ignatenko, Ksenia Lapshina & Ivan Stenin
+
+**Задача**:
+Определить, являются ли некоторые явления ареальными
+Ареал: Северо-Восточная Азия
+
+Готовые данные проекта:
+
+3 явления:
+
+  * наличие аттенуатива (0/1) 
+  * наличие именного времени (0/1)
+  * наличие пролатива (0/1) 
+
+Это явления, знакомые авторам проекта по предыдущим исследованиям. В будущем планируется добавить и другие (например: показатель перемещения на глаголах, прохибитив и др.).
+
+Рассчитаем сперва базовые статистики для категориальных переменных на небольшой выборке, связанной с Сибирью.
+Мы построим таблицу сопряжённости, мозаичный график в качестве визуализации этой таблицы, а также проверим распределение по критерию χ² и точным тестом Фишера (более верным при малом количестве данных)
+
+```{r}
+make_contingency_stats <- function(table, col1, col2){
+  formula <- as.formula(
+    paste(
+      "~", paste(c(col1, col2), collapse = "+"),
+      collapse=" "
+    )
+  )
+  
+  cont_table <- xtabs(formula, data=table)
+  
+  print(cont_table)
+  
+  mosaicplot(cont_table, color=viridis(2))
+  
+  print(chisq.test(cont_table))
+  
+  print(fisher.test(cont_table))
+} 
+```
+
+
+
+## Именное время
+
+```{r,message=FALSE}
+nomtense_syb <- read_csv2("./data/nominal_tense_siberia.csv")
+nomtense_syb %>%
+  mutate(in_siberia = as.logical(in_siberia),
+         family=as.factor(family),
+         nominal_tense = as.logical(case_when(
+           nominal_tense == "N" ~ 0,
+           nominal_tense == "Y" ~ 1
+         )),
+         tensed_possesion = as.logical(case_when(
+           tensed_possesion == "N" ~ 0,
+           tensed_possesion == "Y" ~ 1
+         ))
+  ) ->
+  nomtense_syb
+
+
+```
+
+```{r,echo=use_skim,results=use_skim}
+skim(nomtense_syb)
+
+```
+
+
+
+```{r}
+head(nomtense_syb)
+```
+
+
+Рассмотрим два явления из этой области: собственно маркирование времени на именах и маркирование времени на обладаемом.
+
+### Собственно время
+
+Именное время (Nordlinger, Sadler, 2000) само по себе редкая категория. Согласно данным выборки, оно примерно одинаково редко как в Сибири, так и вне её. Оно вряд ли может быть названо ареальным для Сибири явлением.
+
+```{r}
+make_contingency_stats(nomtense_syb, "in_siberia", "nominal_tense")
+```
+
+
+### Посессивность с маркированием времени
+
+```{r}
+make_contingency_stats(nomtense_syb, "in_siberia", "tensed_possesion")
+```
+
+С другой стороны, для не менее редкого явления времени на обладаемом имени видна корреляция с ареалом: в 7 языках Сибири есть это явление, и согласно тесту Фишера, такое совместное распределение можно считать значимо неслучайным (p=0.026)
+
+Полезно может быть также рассмотреть семьи, в языках которых есть это явление и которые относятся к Сибири и сравнить их с другими языками семьи. Это позволит отделить наследственность от ареальонсти.
+
+Языки, которые относятся к Сибири и в которых есть явление:
+
+```{r,echo=FALSE,results=FALSE}
+# feat2 <- function(table, nonfamily_cols){
+#   table %>%
+#     count(across(c(family, {{ nonfamily_cols }}))) %>%
+#     # filter(tensed_possesion & in_siberia) ->
+#     filter(if_all(all_of({{ nonfamily_cols }}), ~ . == TRUE)) ->
+#     sib_feat
+#   
+#   print(sib_feat)
+#   
+# }
+# 
+# nomtense_syb %>%
+#   feat2(c(tensed_possesion, in_siberia))
+
+```
+
+
+```{r}
+nomtense_syb %>%
+  count(family, tensed_possesion, in_siberia, .drop = FALSE) %>%
+  filter(tensed_possesion & in_siberia) ->
+  sib_tensed_poss
+
+sib_tensed_poss
+  
+  
+```
+
+Посчитаем, сколько в семьях всех остальных языков (сибирские и в них нет явления, либо несибирские с наличием или отсутствием явления). 
+
+```{r}
+nomtense_syb %>%
+  # mutate(tensed_possesion = as.factor(tensed_possesion),
+  #        in_siberia = as.factor(in_siberia)) %>%
+  count(family, tensed_possesion, in_siberia, .drop = FALSE) %>%
+  filter(!(tensed_possesion & in_siberia)) %>%
+  group_by(family) %>% 
+  summarise(n.other = sum(n)) ->
+  nonsib_or_nontensed_poss
+
+nonsib_or_nontensed_poss
+
+```
+
+После этого, совместим таблицы и сравним количество языков в семье, которые принадлежат сибирскому ареалу и в которых есть явление и количество всех остальных языков этой семьи. 
+
+```{r}
+sib_tensed_poss %>%
+  left_join(nonsib_or_nontensed_poss, by="family")
+
+```
+
+Оказывается, что действительно, в тунгусско-маньчжурской семьяе языков, расположенных в Сибири и имеющих явление больше, чем сибирских языков без явления и несибирских языков вообще. Для уральской семьи в выборке доступно много языков и это не соблюдается. Однако мы знаем, что все остальные языки, это языки без явления (и большинство несибирские):
+
+```{r}
+nomtense_syb %>%
+  # mutate(tensed_possesion = as.factor(tensed_possesion),
+  #        in_siberia = as.factor(in_siberia)) %>%
+  count(family, tensed_possesion, in_siberia, .drop = FALSE) %>%
+  filter(!(tensed_possesion & in_siberia)) %>%
+  filter(family == "Uralic")
+
+```
+
+
+Это подтверждает утверждение о связи явления с ареалом.
+
 
 ## Аттенуатив
 
 Данные по аттенуативу: есть ли в языке особый показатель для *пониженной интенсивности* действия?
 
-```{r,message=FALSE,echo=FALSE}
+```{r,message=FALSE}
 atten_syb <- read_csv("./data/atten_syb_2.csv")
 atten_world <- read_csv("./data/atten_world.csv")
 ```
 
 
-```{r}
+```{r,echo=use_skim,results=use_skim}
 skim(atten_syb)
 ```
 
@@ -40,7 +219,7 @@ skim(atten_syb)
 head(atten_syb)
 ```
 
-```{r}
+```{r,echo=use_skim,message=use_skim,results=use_skim}
 skim(atten_world)
 ```
 
@@ -86,20 +265,6 @@ atten_world %>%
 table(atten_world$has_attenuative, atten_world$in_siberia)
 ```
 
-```{r}
-
-atten_world %>%
-  mutate(in_siberia = if_else(
-    glottocode %in% in_sib_world, 1, 0
-  )) %>%
-  rename(., has_attenuative=has.atten) %>%
-  mutate(family = as.factor(family), in_siberia = as.logical(in_siberia),
-         has_attenuative = as.logical(has_attenuative)) ->
-  atten_world
-
-
-atten_world
-```
 
 ```{r}
 
@@ -109,40 +274,20 @@ atten_full <- merge(
   all = TRUE
 )
 
-skim(atten_full)
-
-atten_full
+head(atten_full)
 
 ```
+
+```{r,echo=use_skim,message=use_skim,results=use_skim}
+skim(atten_full)
+```
+
 
 ```{r}
 table(atten_full$has_attenuative)
 ```
 
-
-
-Рассчитаем сперва базовые статистики для категориальных переменных на небольшой выборке, связанной с Сибирью.
-Мы построим таблицу сопряжённости, мозаичный график в качестве визуализации этой таблицы, а также проверим распределение по критерию χ² и точным тестом Фишера (более верным при малом количестве данных)
-
 ```{r}
-make_contingency_stats <- function(table, col1, col2){
-  formula <- as.formula(
-    paste(
-      "~", paste(c(col1, col2), collapse = "+"),
-      collapse=" "
-    )
-  )
-  
-  cont_table <- xtabs(formula, data=table)
-  
-  print(cont_table)
-  
-  mosaicplot(cont_table)
-  
-  print(chisq.test(cont_table))
-  
-  print(fisher.test(cont_table))
-} 
 
 make_contingency_stats(atten_syb, 'has_attenuative', 'in_siberia')
 ```
@@ -170,14 +315,79 @@ atten_syb_fit2 <- cforest(has_attenuative ~ family + in_siberia, data = atten_sy
 print(atten_syb_fit2)
 ```
 
-Со стандартным значением α=0.05 оказывается в нашем случае, что алгоритм построения дерева выполняет лишь одно деление (https://cran.r-project.org/package=party). В данном случае, предикат для разделения оказывается тривиальным (все семьи, где есть аттенуатив против остальных). Однако можно заметить также и выбросы, по одному выбивающемуся наблюдению в каждой группе.
+Со стандартным значением α=0.05 оказывается в нашем случае, что алгоритм построения дерева выполняет лишь одно деление (https://cran.r-project.org/package=party). Предикат для разделения оказывается тривиальным (все семьи, где есть аттенуатив против остальных). Однако можно заметить также и выбросы, по одному выбивающемуся наблюдению в каждой группе.
 
-### Данные по миру
+Языки, которые относятся к Сибири и в которых есть явление:
+
+```{r}
+atten_syb %>%
+  count(family, has_attenuative, in_siberia, .drop = FALSE) %>%
+  filter(has_attenuative & in_siberia) ->
+  syb_atten
+
+syb_atten
+  
+```
+
+```{r}
+atten_syb %>%
+  count(family, has_attenuative, in_siberia, .drop = FALSE) %>%
+  filter(!(has_attenuative & in_siberia)) %>%
+  group_by(family) %>%
+  summarise(n.other = sum(n)) ->
+  nonsib_or_nonatten
+
+nonsib_or_nonatten
+```
+
+```{r}
+syb_atten %>%
+  left_join(nonsib_or_nonatten, by="family")
+```
+
+Согласно небольшой выборке, аттенуатив не специфичен для Сибири (ср. уральские и сибирские тюркские.)
 
 
 ```{r}
-atten_full
+atten_syb %>%
+  count(family, has_attenuative, in_siberia, .drop = FALSE) %>%
+  filter(!(has_attenuative & in_siberia)) %>%
+  filter(family %in% c("Eskimo-Aleut", "Chukotko-Kamchatkan"))
 ```
+
+
+```{r}
+atten_syb %>%
+  count(family, has_attenuative, in_siberia, .drop = FALSE) %>%
+  filter(!(has_attenuative & in_siberia)) %>%
+  filter(family %in% c("Uralic", "Turkic"))
+```
+
+
+### Данные по миру
+
+Рассмотрим теперь, как малые данные околосибирской выборки встраиваются в несколько больший мировой контекст.
+
+```{r}
+head(atten_full)
+```
+
+В выборке много уральских, тюркских, монгольских, эскимоссо-алеутских за счёт слияния с околосибирской соединения:
+
+```{r,fig.height=8}
+atten_full %>%
+  group_by(family) %>%
+  summarise(N = n()) %>%
+  mutate(family = fct_reorder(family, N)) %>%
+  ggplot(aes(x=family, y=N)) +
+  geom_col() +
+  coord_flip()
+```
+
+```{r}
+atten_world
+```
+
 
 ```{r}
 atten_full %>%
@@ -204,6 +414,30 @@ print(atten_full_fit)
 
 На этой выборке, включающей много мировых языков, наиболее важным предикатом оказывается то, в Сибири ли язык! Тут тоже не выполняется дальнейших делений в дереве, как и в ситуации выше, с околосибирской выборкой. 
 
+```{r}
+atten_full %>%
+  count(family, has_attenuative, in_siberia, .drop = FALSE) %>%
+  filter(has_attenuative & in_siberia) ->
+  world_atten
+  
+ 
+atten_full %>% 
+  count(family, has_attenuative, in_siberia, .drop = FALSE) %>%
+  filter(!(has_attenuative & in_siberia)) %>%
+  group_by(family) %>%
+  summarise(n.other = sum(n)) ->
+  nonworld_or_nonatten
+
+world_atten
+
+world_atten %>%
+  left_join(nonworld_or_nonatten, by="family")
+
+```
+
+Рассуждения выше про уральские и тюркские остаются актуальны, но действительно на мировой выборке то, сибирский ли язык, оказывается ключевым фактором.
+
+
 
 ## Пролатив
 
@@ -224,7 +458,7 @@ prol_syb %>%
 ```
 
 
-```{r}
+```{r,echo=use_skim,results=use_skim}
 skim(prol_syb)
 
 
@@ -238,6 +472,7 @@ make_contingency_stats(prol_syb, "is_siberian", "prolative_case")
 Картина по пролативу на небольшой (немного другой) околосибирской выборке более явная, чем была по аттенуативу. Здесь видим, значимые значения критериев χ² и теста Фишера (p=0.026).
 Более однозначно выглядит и график: пролатив почти не представлен в несибирских языках, а сибирские языки делятся на две равные группы по его наличию.
 
+
 ```{r}
 prol_syb %>%
   filter(!is.na(prolative_case)) %>%
@@ -248,5 +483,97 @@ plot(prol_syb_fit)
 print(prol_syb_fit)
 ```
 
+Точно так же, как и выше, алгоритм просто отобрал семьи, где присутствует пролатив.
+
+Ситуация почти не меняется, если семплировать данные и повторять построение. Однако иногда принадлежность к Сибири может служить вторым предикатом для отобранных по семплу семей.
+
+
+```{r}
+set.seed(12)
+
+for(i in 1:7){
+
+nona <- prol_syb %>%  filter(!is.na(prolative_case))
+ 
+sample <- sample(c(TRUE, FALSE), nrow(nona), replace=TRUE, prob=c(0.65,0.35))
+    
+prol_syb_train  <- nona[sample, ]
+prol_syb_test   <- nona[!sample, ]
+
+prol_syb_train %>%
+  filter(!is.na(prolative_case)) %>%
+  ctree(prolative_case ~ family + is_siberian, data = .) ->
+  prol_syb_fit2
+
+plot(prol_syb_fit2)
+print(prol_syb_fit2)
+
+}
+```
+
+
+```{r}
+prol_syb %>%
+  count(family, prolative_case, is_siberian, .drop = FALSE) %>%
+  filter(prolative_case & is_siberian) ->
+  sib_prolatives
+
+sib_prolatives
+  
+```
+
+
+Посчитаем, сколько в семьях всех остальных языков (сибирские и в них нет явления, либо несибирские с наличием или отсутствием явления). 
+
+```{r}
+prol_syb %>%
+  count(family, prolative_case, is_siberian, .drop = FALSE) %>%
+  filter(!(prolative_case & is_siberian)) %>%
+  group_by(family) %>%
+  summarise(n.other = sum(n))  ->
+  nonsib_or_noprolative
+
+nonsib_or_noprolative
+
+```
+
+После этого, совместим таблицы и сравним количество языков в семье, которые принадлежат сибирскому ареалу и в которых есть явление и количество всех остальных языков этой семьи. 
+
+```{r}
+sib_prolatives %>%
+  left_join(nonsib_or_noprolative, by="family")
+
+```
+
+Здесь ситуация в целом аналогична ситуации выше с временем на обладаемом: в семьях в целом преобладают интересующие нас языки — сибирские и с явлением. Их больше или столько же, сколько вообще всех остальных языков семьи в выборке. Про эскимосско-алеутские и уральские языки в целом укладываются в картину и будут подробнее обсуждены ниже. Разумные исключения здесь — чукотско-камчатские и юкагирские, среди которых нет несибирских языков (а вообще все языки с явлением).
+
+
+```{r}
+prol_syb %>%
+  filter(family %in% c("Chukotko-Kamchatkan", "Yukaghir"))
+```
+
+```{r}
+prol_syb %>%
+  count(family, prolative_case, is_siberian, .drop = FALSE) %>%
+  filter(!(prolative_case & is_siberian)) %>%
+  filter(family %in% c("Eskimo-Aleut", "Uralic"))
+
+```
+Видим, что в эскимосско-алеутских в целом распространён пролатив. С другой стороны, в уральских пролатив встречается лишь в 2 несибирских языках и не встречается в 2 сибирских. В целом это укладывается в картину.
+
+
+## Обсуждение
+
+Мы рассмотрели некоторые явления Сибири в связи с идеей о Сибири как ареале.
+
+Для аттенуатива при рассмотрении мировой выборки и для пролатива и времени на обладаемом при рассмотрении уже небольших выборок видна связь наличия явления и того, сибирский ли язык.
+
+Здесь мы прибегаем к более простым моделям, учитывающим прежде всего сам ареал. Однако для пролатива и времени на обладаемом можно говорить как минимум о стабильности (в терминах Nichols) этих явлений в Сибири.
+Здесь не так важно оказывается рассматривать генетическую принадлежность, поскольку видна распространнёность явления в Сибири и меньшая распространнёность вне её. То есть Сибирь оказывается островком стабильности для этого явления. 
+
+Тем не менее, генетическую близость мы также смогли учесть при анализе.
+
+Мы пробовали строить решающее дерево для оценки важностей переменных. Но во многих случаях алгоритм решающего дерева строил пень, дерево глубиной 1, а предикат был тривиальным: "семья находится среди семей с пролативом".
 
 
